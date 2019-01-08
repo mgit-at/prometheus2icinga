@@ -4,6 +4,11 @@ import sys, getopt
 import urllib2
 import json
 
+OK = 0
+WARNING = 1
+CRITICAL = 2
+UNKNOWN = 3
+
 def get_args(argv):
 
     usage = """
@@ -53,7 +58,7 @@ def get_args(argv):
        opts, args = getopt.getopt(argv,"hb:a:i:t:",["baseurl=","alertname=","instance=","timeout="])
     except getopt.GetoptError:
        print_usage()
-       sys.exit(3)
+       sys.exit(UNKNOWN)
 
     baseurl = None
     alertname = None
@@ -76,31 +81,31 @@ def get_args(argv):
             except ValueError as e:
                 print "Timeout must be an Int or Float\n\n"
                 print_usage()
-                sys.exit(3)
+                sys.exit(UNKNOWN)
 
     if not baseurl and not alertname and not instance:
         print_usage()
-        sys.exit(3)
+        sys.exit(UNKNOWN)
 
     if not baseurl or not alertname or not instance:
         print "The arguments baseurl, alertname and instance must be specified."
         print_usage()
-        sys.exit(3)
+        sys.exit(UNKNOWN)
 
     if not baseurl.endswith("/"):
         baseurl += "/"
 
     return baseurl, alertname, instance, timeout
 
-def get_alert_names(baseurl, api_rules_endpoint):
+def get_alert_names(baseurl, api_rules_endpoint, timeout):
     try:
-        rules_request = urllib2.urlopen(baseurl + api_rules_endpoint).read()
+        rules_request = urllib2.urlopen(baseurl + api_rules_endpoint, timeout=timeout).read()
         rules_request = json.loads(rules_request)
     except urllib2.URLError as e:
         print "Service @ " +  api_rules_endpoint + " not reachable."
         print "Are you sure Prometheus is up and running @ " + baseurl + api_rules_endpoint + " ?"
         print e
-        sys.exit(3)
+        sys.exit(UNKNOWN)
 
     alertnames = []
     try:
@@ -112,18 +117,18 @@ def get_alert_names(baseurl, api_rules_endpoint):
                     alertnames.append(rule["name"])
     except KeyError as e:
         print e
-        sys.exit(3)
+        sys.exit(UNKNOWN)
 
     return alertnames
 
-def get_firing_alerts(baseurl, api_alerts_endpoint, instance):
+def get_firing_alerts(baseurl, api_alerts_endpoint, instance, timeout):
     try:
-       alert_request = urllib2.urlopen(baseurl + api_alerts_endpoint).read()
+       alert_request = urllib2.urlopen(baseurl + api_alerts_endpoint, timeout=timeout).read()
        alert_request = json.loads(alert_request)
     except urllib2.URLError as e:
         print "Service @ " +  api_alerts_endpoint + " not reachable."
         print "Are you sure Prometheus is up and running @ " + baseurl + api_alerts_endpoint + " ?"
-        sys.exit(3)
+        sys.exit(UNKNOWN)
 
     firingalerts = []
 
@@ -136,16 +141,11 @@ def get_firing_alerts(baseurl, api_alerts_endpoint, instance):
         print "UNKNOWN"
         print "Api @ " + api_alerts_endpoint + " might not be compatible."
         print e
-        sys.exit(3)
+        sys.exit(UNKNOWN)
 
     return firingalerts
 
 def check_alert_status(alertname, alertnames, firingalerts):
-    OK = 0
-    WARNING = 1
-    CRITICAL = 2
-    UNKNOWN = 3
-
     if not alertname + "_warn" in alertnames or not alertname + "_crit" in alertnames:
         print "Alert(s) " + alertname + "_warn" + " and/or " + alertname + "_crit" + " do not exist."
         return UNKNOWN
@@ -163,11 +163,12 @@ def main(argv):
     baseurl = args[0]
     alertname = args[1]
     instance = args[2]
+    timeout = args[3]
 
-    alertnames = get_alert_names(baseurl, "api/v1/rules")
-    firingalerts = get_firing_alerts(baseurl, "api/v1/alerts", instance)
+    alertnames = get_alert_names(baseurl, "api/v1/rules", timeout)
+    firingalerts = get_firing_alerts(baseurl, "api/v1/alerts", instance, timeout)
 
     return check_alert_status(alertname, alertnames, firingalerts)
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    sys.exit(main(sys.argv[1:]))
