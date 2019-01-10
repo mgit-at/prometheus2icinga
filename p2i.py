@@ -4,10 +4,140 @@ import sys, getopt
 import urllib2
 import json
 
-OK = 0
-WARNING = 1
-CRITICAL = 2
-UNKNOWN = 3
+class PromRequestError(Exception):
+    def __init__(self, message, cause):
+        super(PromRequestError, self).__init__(
+            message + u'caused by ' + repr(cause)
+        )
+        self.cause = cause
+
+class PromRequest(object):
+    OK = 0
+    WARNING = 1
+    CRITICAL = 2
+    UNKNOWN = 3
+
+    def __init__(self, baseurl, alertname, labels, timeout):
+        self.baseurl = baseurl
+        self.alertname = alertname
+        self.labels = labels
+        self.timeout = timeout
+        self.api_rules_endpoint = "api/v1/rules"
+        self.api_alerts_endpoint = "api/v1/alerts"
+
+    def format_info(info):
+        message = ""
+        for line in info.splitlines:
+            line = line.strip
+            message += line.strip("/") + "\n" # TODO: check if this os formatting correct
+        return message
+
+    def get_firing_alerts(self):
+        try:
+            alert_request = urllib2.urlopen(
+                self.baseurl +
+                api_alerts_endpoint,
+                timeout=self.timeout
+            ).read()
+            alert_request = json.loads(alert_request)
+        except urllib2.URLError as e:
+            message = format_info(
+                """
+                Service @ {api_alerts_endpoint} not reachable.
+                Are you sure Prometheus is up and running @ {baseurl}{api_alerts_endpoint}?
+                """.format(
+                    api_alerts_endpoint = self.api_alerts_endpoint,
+                    baseurl = self.baseurl 
+                )
+            )
+            raise PromRequestError(message, e)
+
+        firingalerts = []
+
+        try:
+            alerts = alert_request["data"]["alerts"]
+            for alert in alerts:
+                if alert["labels"]["instance"] == instance:
+                    firingalerts.append(alert["labels"]["alertname"])
+        except KeyError as e:
+            message = format_info(
+                """
+                UNKNOWN
+                API @ {api_alerts_endpoint} might not be compatble.
+                """.format(
+                    api_alerts_endpoint = self.api_alerts_endpoint
+                )
+            )
+            raise PromRequestError(message, e)
+
+        return firingalerts
+
+    def get_alert_names(self):
+        try:
+            rules_request = urllib2.urlopen(
+                self.baseurl +
+                api_rules_endpoint,
+                timeout=self.timeout
+            ).read()
+            rules_request = json.loads(rules_request)
+        except urllib2.URLError as e:
+            message = format_info(
+                """
+                Service @ {api_rules_endpoint} not reachable.
+                Are you sure Prometheus is up and running @ {baseurl}{api_alerts_endpoint}?
+                """.format(
+                    api_rules_endpoint = self.api_alerts_endpoint,
+                    baseurl = self.baseurl
+                )
+            )
+            raise PromRequestError(message, e)
+
+        alertnames = []
+        try:
+            groups = rules_request["data"]["groups"]
+            for group in groups:
+                rules = group["rules"]
+                for rule in rules:
+                    if rule["type"] == "alerting":
+                        alertnames.append(rule["name"])
+        except KeyError as e:
+            message = format_info(
+                """
+                UNKNOWN
+                API @ {api_rules_endpoint} might not be compatble.
+                """.format(
+                    api_rules_endpoint = self.api_rules_endpoint
+                )
+            )
+            raise PromRequestError(message, e)
+
+        return alertnames
+
+    def alert_exists(self, alertname):
+        return alername in self.get_alert_names(self) # TODO: Should I capture Exceptions here? ~No? What happens if this gets called outside of this class and does not get handled? RC? 
+
+    def check_alert_status(self, alertname, throw_exception_if_unknown=True):
+        try:
+            if not self.alert_exists(self, alertname):
+                if not throw_exception_if_unknown:
+                    return UNKNOWN # TODO: Information gets lost here again *facepalm* change that!!!
+                message = self.format_info(
+                    """
+                    Alert {alertname} does not exist.
+                    """.format(
+                        alertname = alertname
+                    )
+                )
+                raise PromRequestError(message)
+
+         # TODO: WARN CRIT    
+            
+
+        except PromRequestError as e:
+            if not throw_exception_if_unknown:
+                return UNKNOWN # TODO: THIS WAY THE CAUSE OF THE EXCEPTION GETS LOST CHAGE THAT!!!
+
+        return OK
 
 def get_args(argv):
 
@@ -97,78 +227,23 @@ def get_args(argv):
 
     return baseurl, alertname, instance, timeout
 
-def get_alert_names(baseurl, api_rules_endpoint, timeout):
-    try:
-        rules_request = urllib2.urlopen(baseurl + api_rules_endpoint, timeout=timeout).read()
-        rules_request = json.loads(rules_request)
-    except urllib2.URLError as e:
-        print "Service @ " +  api_rules_endpoint + " not reachable."
-        print "Are you sure Prometheus is up and running @ " + baseurl + api_rules_endpoint + " ?"
-        print e
-        sys.exit(UNKNOWN)
-
-    alertnames = []
-    try:
-        groups = rules_request["data"]["groups"]
-        for group in groups:
-            rules = group["rules"]
-            for rule in rules:
-                if rule["type"] == "alerting":
-                    alertnames.append(rule["name"])
-    except KeyError as e:
-        print e
-        sys.exit(UNKNOWN)
-
-    return alertnames
-
-def get_firing_alerts(baseurl, api_alerts_endpoint, instance, timeout):
-    try:
-       alert_request = urllib2.urlopen(baseurl + api_alerts_endpoint, timeout=timeout).read()
-       alert_request = json.loads(alert_request)
-    except urllib2.URLError as e:
-        print "Service @ " +  api_alerts_endpoint + " not reachable."
-        print "Are you sure Prometheus is up and running @ " + baseurl + api_alerts_endpoint + " ?"
-        sys.exit(UNKNOWN)
-
-    firingalerts = []
-
-    try:
-        alerts = alert_request["data"]["alerts"]
-        for alert in alerts:
-            if alert["labels"]["instance"] == instance:
-                firingalerts.append(alert["labels"]["alertname"])
-    except KeyError as e:
-        print "UNKNOWN"
-        print "Api @ " + api_alerts_endpoint + " might not be compatible."
-        print e
-        sys.exit(UNKNOWN)
-
-    return firingalerts
-
-def check_alert_status(alertname, alertnames, firingalerts):
-    if not alertname + "_warn" in alertnames or not alertname + "_crit" in alertnames:
-        print "Alert(s) " + alertname + "_warn" + " and/or " + alertname + "_crit" + " do not exist."
-        return UNKNOWN
-
-    if alertname + "_crit" in firingalerts:
-        return CRITICAL
-
-    if alertname + "_warn" in firingalerts:
-        return WARNING
-
-    return OK
-
 def main(argv):
     args = get_args(argv)
-    baseurl = args[0]
-    alertname = args[1]
-    instance = args[2]
-    timeout = args[3]
+    prom_request = new PromRequest(args[0], args[1], args[2], args[3])
 
-    alertnames = get_alert_names(baseurl, "api/v1/rules", timeout)
-    firingalerts = get_firing_alerts(baseurl, "api/v1/alerts", instance, timeout)
-
-    return check_alert_status(alertname, alertnames, firingalerts)
+    return prom_request.check_alert_status()
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))
+
+   # if not alertname + "_warn" in alertnames or not alertname + "_crit" in alertnames:
+   #     print "Alert(s) " + alertname + "_warn" + " and/or " + alertname + "_crit" + " do not exist."
+   #     return UNKNOWN
+
+   # if alertname + "_crit" in firingalerts:
+   #     return CRITICAL
+
+   # if alertname + "_warn" in firingalerts:
+   #     return WARNING
+
+   # return OK
