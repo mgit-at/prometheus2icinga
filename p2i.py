@@ -1,8 +1,10 @@
 #!/usr/bin/python
+#pylint: disable-msg=E1121
 
 import sys, getopt
 import urllib2
 import json
+import ast
 
 class PromRequestError(Exception):
     def __init__(self, message, cause):
@@ -25,7 +27,7 @@ class PromRequest(object):
         self.api_rules_endpoint = "api/v1/rules"
         self.api_alerts_endpoint = "api/v1/alerts"
 
-    def format_info(info):
+    def format_info(self, info):
         message = ""
         for line in info.splitlines:
             line = line.strip
@@ -36,12 +38,12 @@ class PromRequest(object):
         try:
             alert_request = urllib2.urlopen(
                 self.baseurl +
-                api_alerts_endpoint,
+                self.api_alerts_endpoint,
                 timeout=self.timeout
             ).read()
             alert_request = json.loads(alert_request)
         except urllib2.URLError as e:
-            message = format_info(
+            message = self.format_info(
                 """
                 Service @ {api_alerts_endpoint} not reachable.
                 Are you sure Prometheus is up and running @ {baseurl}{api_alerts_endpoint}?
@@ -57,10 +59,9 @@ class PromRequest(object):
         try:
             alerts = alert_request["data"]["alerts"]
             for alert in alerts:
-                if alert["labels"]["instance"] == instance:
-                    firingalerts.append(alert["labels"]["alertname"])
+                firingalerts.append([alert["labels"]["alertname"], alert["labels"]])
         except KeyError as e:
-            message = format_info(
+            message = self.format_info(
                 """
                 UNKNOWN
                 API @ {api_alerts_endpoint} might not be compatble.
@@ -76,12 +77,12 @@ class PromRequest(object):
         try:
             rules_request = urllib2.urlopen(
                 self.baseurl +
-                api_rules_endpoint,
+                self.api_rules_endpoint,
                 timeout=self.timeout
             ).read()
             rules_request = json.loads(rules_request)
         except urllib2.URLError as e:
-            message = format_info(
+            message = self.format_info(
                 """
                 Service @ {api_rules_endpoint} not reachable.
                 Are you sure Prometheus is up and running @ {baseurl}{api_alerts_endpoint}?
@@ -101,7 +102,7 @@ class PromRequest(object):
                     if rule["type"] == "alerting":
                         alertnames.append(rule["name"])
         except KeyError as e:
-            message = format_info(
+            message = self.format_info(
                 """
                 UNKNOWN
                 API @ {api_rules_endpoint} might not be compatble.
@@ -113,14 +114,30 @@ class PromRequest(object):
 
         return alertnames
 
-    def alert_exists(self, alertname):
-        return alername in self.get_alert_names(self) # TODO: Should I capture Exceptions here? ~No? What happens if this gets called outside of this class and does not get handled? RC? 
-
-    def check_alert_status(self, alertname, throw_exception_if_unknown=True):
+    def get_firing_alerts_with_name(self, alertname):
         try:
-            if not self.alert_exists(self, alertname):
+            firingalerts = self.get_firing_alerts(self)
+            relatedalerts = []
+
+            if not firingalerts:
+                return relatedalerts
+    
+            for firingalert in firingalerts:
+                if firingalert[0] == alertname:
+                    relatedalerts.append(firingalert)
+        except PromRequestError as e:
+            raise
+
+        return relatedalerts
+
+    def alert_exists(self, alertname):
+        return alertname in self.get_alert_names(self) # OUTDATED: TODO: Should I capture Exceptions here? ~No? What happens if this gets called outside of this class and does not get handled? RC? 
+
+    def check_alert_status(self, alertname, labels, throw_exception_if_unknown=True):
+        try:
+            if not self.alert_exists(self, alertname): # TODO: Check labels as well
                 if not throw_exception_if_unknown:
-                    return UNKNOWN # TODO: Information gets lost here again *facepalm* change that!!!
+                    return self.UNKNOWN # OUTDATED: TODO: Information gets lost here again *facepalm* change that!!!
                 message = self.format_info(
                     """
                     Alert {alertname} does not exist.
@@ -128,16 +145,38 @@ class PromRequest(object):
                         alertname = alertname
                     )
                 )
-                raise PromRequestError(message)
-
-         # TODO: WARN CRIT    
+                raise PromRequestError(message, None)
             
+            # TODO: WARN CRIT
+            firingalerts = self.get_firing_alerts_with_name(self, alertname)
+            
+            if not firingalerts:
+                return self.OK
+
+            for firingalert in firingalerts:
+                if labels <= firingalert[1]:
+                    try:
+                        if firingalerts[1]["severity"] in ("crit", "critical"):
+                            return self.CRITICAL
+                        if firingalerts[1]["severity"] in ("warn", "warning"): #unsafe keyerror if not severity; make this configurable
+                            return self.WARNING
+                    except KeyError as e:
+                        message = self.format_info(
+                            """
+                            Alert {alertname} has no label {missinglabel}.
+                            "{missinglabel}" is used to determine the severity of the alert.
+                            """.format(
+                                alertname = alertname,
+                                missinglabel = "severity"
+                            )
+                        )   
 
         except PromRequestError as e:
             if not throw_exception_if_unknown:
-                return UNKNOWN # TODO: THIS WAY THE CAUSE OF THE EXCEPTION GETS LOST CHAGE THAT!!!
+                return self.UNKNOWN # OUTDATED: TODO: THIS WAY THE CAUSE OF THE EXCEPTION GETS LOST CHAGE THAT!!!
+            raise
 
-        return OK
+        return self.OK
 
 def get_args(argv):
 
@@ -170,8 +209,8 @@ def get_args(argv):
             /                      Prometheus API endpoints will be
             /                      automatically used.
             /    -a, --alertname   Name of the alert you want to check.
-            /    -i, --instance    The instance you want the alert to be
-            /                      checked for. (e.g. "localhost:9090")
+            /    -l, --labels      The labels you want the alert to be
+            /                      checked for. (e.g. "{{'instance':'localhost:9090'}}")
             /    -t, --timeout     How long schould be waited in case that
             /                      Prometheus does not respond before returning
             /                      UNKNOWN (RC=3). Default timeout = {default_timeout}
@@ -185,14 +224,14 @@ def get_args(argv):
             print line.strip("/")
 
     try:
-       opts, args = getopt.getopt(argv,"hb:a:i:t:",["baseurl=","alertname=","instance=","timeout="])
+       opts, args = getopt.getopt(argv,"hb:a:l:t:",["baseurl=","alertname=","labels=","timeout="])
     except getopt.GetoptError:
        print_usage()
-       sys.exit(UNKNOWN)
+       sys.exit(3)
 
     baseurl = None
     alertname = None
-    instance = None
+    labels = None
     timeout = 3.0
 
     for opt, arg in opts:
@@ -203,47 +242,44 @@ def get_args(argv):
             baseurl = arg
        elif opt in ("-a", "--alertname"):
             alertname = arg
-       elif opt in ("-i", "--instance"):
-            instance = arg
+       elif opt in ("-l", "--labels"):
+            labels = arg
        elif opt in ("-t", "--timeout"):
             try:
                 timeout = float(arg)
             except ValueError as e:
                 print "Timeout must be an Int or Float\n\n"
                 print_usage()
-                sys.exit(UNKNOWN)
+                sys.exit(3)
 
-    if not baseurl and not alertname and not instance:
+    if not baseurl and not alertname and not labels:
         print_usage()
-        sys.exit(UNKNOWN)
+        sys.exit(3)
 
-    if not baseurl or not alertname or not instance:
-        print "The arguments baseurl, alertname and instance must be specified."
+    if not baseurl or not alertname or not labels:
+        print "The arguments baseurl, alertname and labels must be specified."
         print_usage()
-        sys.exit(UNKNOWN)
+        sys.exit(3)
 
     if not baseurl.endswith("/"):
         baseurl += "/"
 
-    return baseurl, alertname, instance, timeout
+    try:
+        labels = ast.literal_eval(labels)
+    except ValueError as e:
+        print "Please specify labels like this:    -l \"{'instance': 'localhost:9090', 'example-label': 'blafoo'}\""
+        sys.exit(3)
+    except SyntaxError:
+        print "Please use single quotes for labels. e.g.    -l \"{'instance': 'localhost:9090', 'example-label': 'blafoo'}\""
+        sys.exit(3)
+
+    return baseurl, alertname, labels, timeout
 
 def main(argv):
     args = get_args(argv)
-    prom_request = new PromRequest(args[0], args[1], args[2], args[3])
-
-    return prom_request.check_alert_status()
+    print args
+    #prom_request = new PromRequest(args[0], args[1], args[2], args[3])
+    return
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))
-
-   # if not alertname + "_warn" in alertnames or not alertname + "_crit" in alertnames:
-   #     print "Alert(s) " + alertname + "_warn" + " and/or " + alertname + "_crit" + " do not exist."
-   #     return UNKNOWN
-
-   # if alertname + "_crit" in firingalerts:
-   #     return CRITICAL
-
-   # if alertname + "_warn" in firingalerts:
-   #     return WARNING
-
-   # return OK
