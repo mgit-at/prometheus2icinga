@@ -8,10 +8,16 @@ import ast
 
 class PromRequestError(Exception):
     def __init__(self, message, cause):
-        super(PromRequestError, self).__init__(
-            message + u'caused by ' + repr(cause)
-        )
-        self.cause = cause
+        if cause: 
+            super(PromRequestError, self).__init__(
+                message + u'caused by ' + repr(cause)
+            )
+            self.cause = cause
+        else:
+            super(PromRequestError, self).__init__(
+                message
+            )
+            
 
 class PromRequest(object):
     OK = 0
@@ -19,18 +25,19 @@ class PromRequest(object):
     CRITICAL = 2
     UNKNOWN = 3
 
-    def __init__(self, baseurl, alertname, labels, timeout):
+    def __init__(self, baseurl, alertname, labels, timeout, print_status_info=True):
         self.baseurl = baseurl
         self.alertname = alertname
         self.labels = labels
         self.timeout = timeout
         self.api_rules_endpoint = "api/v1/rules"
         self.api_alerts_endpoint = "api/v1/alerts"
+        self.print_status_info = print_status_info
 
     def format_info(self, info):
         message = ""
-        for line in info.splitlines:
-            line = line.strip
+        for line in info.splitlines():
+            line = line.strip()
             message += line.strip("/") + "\n" # TODO: check if this os formatting correct
         return message
 
@@ -114,67 +121,78 @@ class PromRequest(object):
 
         return alertnames
 
-    def get_firing_alerts_with_name(self, alertname):
+    def get_firing_alerts_with_name(self):
         try:
-            firingalerts = self.get_firing_alerts(self)
+            firingalerts = self.get_firing_alerts()
             relatedalerts = []
 
             if not firingalerts:
                 return relatedalerts
     
             for firingalert in firingalerts:
-                if firingalert[0] == alertname:
+                if firingalert[0] == self.alertname:
                     relatedalerts.append(firingalert)
         except PromRequestError as e:
             raise
 
         return relatedalerts
 
-    def alert_exists(self, alertname):
-        return alertname in self.get_alert_names(self) # OUTDATED: TODO: Should I capture Exceptions here? ~No? What happens if this gets called outside of this class and does not get handled? RC? 
+    def alert_exists(self):
+        return self.alertname in self.get_alert_names() # OUTDATED: TODO: Should I capture Exceptions here? ~No? What happens if this gets called outside of this class and does not get handled? RC? 
 
-    def check_alert_status(self, alertname, labels, throw_exception_if_unknown=True):
+    def check_alert_status(self, throw_exception_if_unknown=True):
         try:
-            if not self.alert_exists(self, alertname): # TODO: Check labels as well
+            if not self.alert_exists(): # TODO: Check labels as well
                 if not throw_exception_if_unknown:
                     return self.UNKNOWN # OUTDATED: TODO: Information gets lost here again *facepalm* change that!!!
                 message = self.format_info(
                     """
                     Alert {alertname} does not exist.
                     """.format(
-                        alertname = alertname
+                        alertname = self.alertname
                     )
                 )
                 raise PromRequestError(message, None)
+                
             
             # TODO: WARN CRIT
-            firingalerts = self.get_firing_alerts_with_name(self, alertname)
+            firingalerts = self.get_firing_alerts_with_name()
             
             if not firingalerts:
+                if self.print_status_info:
+                    print("OK: 0")
                 return self.OK
-
-            for firingalert in firingalerts:
-                if labels <= firingalert[1]:
-                    try:
-                        if firingalerts[1]["severity"] in ("crit", "critical"):
-                            return self.CRITICAL
-                        if firingalerts[1]["severity"] in ("warn", "warning"): #unsafe keyerror if not severity; make this configurable
-                            return self.WARNING
-                    except KeyError as e:
-                        message = self.format_info(
-                            """
-                            Alert {alertname} has no label {missinglabel}.
-                            "{missinglabel}" is used to determine the severity of the alert.
-                            """.format(
-                                alertname = alertname,
-                                missinglabel = "severity"
+            
+            for i in range(2):
+                for firingalert in firingalerts:
+                    if self.labels <= firingalert[1]:
+                        try:
+                            if i == 0:
+                                if firingalert[1]["severity"] in ("crit", "critical"):
+                                    if self.print_status_info:
+                                        print("CRITICAL: 2")
+                                    return self.CRITICAL
+                            if i == 1:
+                                if firingalert[1]["severity"] in ("warn", "warning"): #unsafe keyerror if not severity; make this configurable
+                                    if self.print_status_info:
+                                        print("WARNING: 1")
+                                    return self.WARNING
+                        except KeyError as e:
+                            message = self.format_info(
+                                """
+                                Alert {alertname} has no label {missinglabel}.
+                                "{missinglabel}" is used to determine the severity of the alert.
+                                """.format(
+                                    alertname = self.alertname,
+                                    missinglabel = "severity"
+                                )
                             )
-                        )   
+                            raise PromRequestError(message, e)
 
         except PromRequestError as e:
             if not throw_exception_if_unknown:
                 return self.UNKNOWN # OUTDATED: TODO: THIS WAY THE CAUSE OF THE EXCEPTION GETS LOST CHAGE THAT!!!
-            raise
+            raise e
 
         return self.OK
 
@@ -215,6 +233,8 @@ def get_args(argv):
             /                      Prometheus does not respond before returning
             /                      UNKNOWN (RC=3). Default timeout = {default_timeout}
             /                      (timeout in seconds)
+            /    -s, --statusinfo  Print Status of Alert in adition to exiting with the 
+            /                      corresponding RC. Default = True. (True/False)
             /
             """.format(scriptname = __file__, api_endpoint = "api/v1/*", default_timeout = 3)
 
@@ -224,7 +244,7 @@ def get_args(argv):
             print line.strip("/")
 
     try:
-       opts, args = getopt.getopt(argv,"hb:a:l:t:",["baseurl=","alertname=","labels=","timeout="])
+       opts, args = getopt.getopt(argv,"hb:a:l:t:s:",["baseurl=","alertname=","labels=","timeout=", "statusinfo="])
     except getopt.GetoptError:
        print_usage()
        sys.exit(3)
@@ -233,6 +253,7 @@ def get_args(argv):
     alertname = None
     labels = None
     timeout = 3.0
+    statusinfo = None
 
     for opt, arg in opts:
        if opt == '-h':
@@ -251,6 +272,19 @@ def get_args(argv):
                 print "Timeout must be an Int or Float\n\n"
                 print_usage()
                 sys.exit(3)
+       elif opt in ("-s", "--statusinfo"):
+            if statusinfo == "True":
+                statusinfo = True
+                break
+            if statusinfo == "False":
+                statusinfo = False
+                break
+            print "Parameter -s, --statusinfo must be True or False. Default = True."
+            print_usage()
+            sys.exit(3)
+
+    if not statusinfo:
+        statusinfo = True
 
     if not baseurl and not alertname and not labels:
         print_usage()
@@ -266,20 +300,25 @@ def get_args(argv):
 
     try:
         labels = ast.literal_eval(labels)
-    except ValueError as e:
+    except ValueError:
         print "Please specify labels like this:    -l \"{'instance': 'localhost:9090', 'example-label': 'blafoo'}\""
         sys.exit(3)
     except SyntaxError:
         print "Please use single quotes for labels. e.g.    -l \"{'instance': 'localhost:9090', 'example-label': 'blafoo'}\""
         sys.exit(3)
 
-    return baseurl, alertname, labels, timeout
+    return baseurl, alertname, labels, timeout, statusinfo
 
 def main(argv):
     args = get_args(argv)
-    print args
-    #prom_request = new PromRequest(args[0], args[1], args[2], args[3])
-    return
+    prom_request = PromRequest(args[0], args[1], args[2], args[3], args[4])
+    STATUS = 0
+    try:
+        STATUS = prom_request.check_alert_status()
+    except PromRequestError as e:
+        print e
+        STATUS = 3
+    return STATUS
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))
