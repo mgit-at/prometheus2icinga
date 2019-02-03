@@ -1,4 +1,5 @@
 #!/usr/bin/python
+#Disable: "Too many positional arguments for method call error":
 #pylint: disable-msg=E1121
 
 import sys, getopt
@@ -20,12 +21,18 @@ class PromRequestError(Exception):
             
 
 class PromRequest(object):
+    """
+    >>> test = PromRequest("test", "example2Alert1", {u'instance': u'localhost:9090'}, None, False)
+    >>> firingalerts = [[u'example2Alert1', {u'instance': u'localhost:9090', u'job': u'prometheus', u'severity': u'critical', u'alertname': u'example2Alert1'}], [u'example2Alert1', {u'instance': u'localhost:9090', u'job': u'prometheus', u'severity': u'warn', u'alertname': u'example2Alert1'}]]
+    >>> test.check_alert_logic(firingalerts)
+    2
+    """
     OK = 0
     WARNING = 1
     CRITICAL = 2
     UNKNOWN = 3
 
-    def __init__(self, baseurl, alertname, labels, timeout, print_status_info=True):
+    def __init__(self, baseurl, alertname, labels, timeout=3, print_status_info=True):
         self.baseurl = baseurl
         self.alertname = alertname
         self.labels = labels
@@ -38,7 +45,7 @@ class PromRequest(object):
         message = ""
         for line in info.splitlines():
             line = line.strip()
-            message += line.strip("/") + "\n" # TODO: check if this os formatting correct
+            message += line.strip("/") + "\n"
         return message
 
     def get_firing_alerts(self):
@@ -137,12 +144,9 @@ class PromRequest(object):
 
         return relatedalerts
 
-    def alert_exists(self):
-        return self.alertname in self.get_alert_names() # OUTDATED: TODO: Should I capture Exceptions here? ~No? What happens if this gets called outside of this class and does not get handled? RC? 
-
     def check_alert_status(self, throw_exception_if_unknown=True):
         try:
-            if not self.alert_exists(): # TODO: Check labels as well
+            if not self.alertname in self.get_alert_names():
                 if not throw_exception_if_unknown:
                     return self.UNKNOWN # OUTDATED: TODO: Information gets lost here again *facepalm* change that!!!
                 message = self.format_info(
@@ -154,40 +158,9 @@ class PromRequest(object):
                 )
                 raise PromRequestError(message, None)
                 
-            
-            # TODO: WARN CRIT
             firingalerts = self.get_firing_alerts_with_name()
             
-            if not firingalerts:
-                if self.print_status_info:
-                    print("OK: 0")
-                return self.OK
-            
-            for i in range(2):
-                for firingalert in firingalerts:
-                    if self.labels <= firingalert[1]:
-                        try:
-                            if i == 0:
-                                if firingalert[1]["severity"] in ("crit", "critical"):
-                                    if self.print_status_info:
-                                        print("CRITICAL: 2")
-                                    return self.CRITICAL
-                            if i == 1:
-                                if firingalert[1]["severity"] in ("warn", "warning"): #unsafe keyerror if not severity; make this configurable
-                                    if self.print_status_info:
-                                        print("WARNING: 1")
-                                    return self.WARNING
-                        except KeyError as e:
-                            message = self.format_info(
-                                """
-                                Alert {alertname} has no label {missinglabel}.
-                                "{missinglabel}" is used to determine the severity of the alert.
-                                """.format(
-                                    alertname = self.alertname,
-                                    missinglabel = "severity"
-                                )
-                            )
-                            raise PromRequestError(message, e)
+            self.check_alert_logic(self, firingalerts)
 
         except PromRequestError as e:
             if not throw_exception_if_unknown:
@@ -195,6 +168,39 @@ class PromRequest(object):
             raise e
 
         return self.OK
+
+    def check_alert_logic(self, firingalerts):
+        if not firingalerts:
+                if self.print_status_info:
+                    print("OK: 0")
+                return self.OK
+            
+        for i in range(2):
+            for firingalert in firingalerts:
+                if self.labels.viewitems() <= firingalert[1].viewitems():
+                    try:
+                        if i == 0:
+                            if firingalert[1]["severity"] in ("crit", "critical"):
+                                if self.print_status_info:
+                                    print("CRITICAL: 2")
+                                return self.CRITICAL
+                        if i == 1:
+                            if firingalert[1]["severity"] in ("warn", "warning"): #unsafe keyerror if not severity; make this configurable
+                                if self.print_status_info:
+                                    print("WARNING: 1")
+                                return self.WARNING
+                    except KeyError as e:
+                        message = self.format_info(
+                            """
+                            Alert {alertname} has no label {missinglabel}.
+                            "{missinglabel}" is used to determine the severity of the alert.
+                            """.format(
+                                alertname = self.alertname,
+                                missinglabel = "severity"
+                            )
+                        )
+                        raise PromRequestError(message, e)
+
 
 def get_args(argv):
 
@@ -321,4 +327,6 @@ def main(argv):
     return STATUS
 
 if __name__ == "__main__":
+    import doctest
+    doctest.testmod()
     sys.exit(main(sys.argv[1:]))
