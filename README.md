@@ -1,19 +1,7 @@
 # Prometheus2Icinga
 
-
-   _______    ______   ______
-  /       \  /      \ /      |
-  $$$$$$$  |/$$$$$$  |$$$$$$
-  $$ |__$$ |$$____$$ |  $$ |
-  $$    $$/  /    $$/   $$ |
-  $$$$$$$/  /$$$$$$/    $$ |
-  $$ |      $$ |_____  _$$ |_
-  $$ |      $$       |/ $$   |
-  $$/       $$$$$$$$/ $$$$$$
-
-
 Usage: p2i.py [OPTIONS]
-:wq
+
 Description:
 
     Script for integrating Prometheus alerts into Icinga/Nagios.
