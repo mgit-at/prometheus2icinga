@@ -1,6 +1,6 @@
+# Copyright mgIT GmbH 2019. Author: David Kainz dkainz@mgit.at github.com/lolcube
+
 #!/usr/bin/python
-#Disable: "Too many positional arguments for method call error":
-#pylint: disable-msg=E1121
 
 import sys, getopt
 import urllib2
