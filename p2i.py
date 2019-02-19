@@ -21,12 +21,6 @@ class PromRequestError(Exception):
             
 
 class PromRequest(object):
-    """
-    >>> test = PromRequest("test", "example2Alert1", {u'instance': u'localhost:9090'}, None, False)
-    >>> firingalerts = [[u'example2Alert1', {u'instance': u'localhost:9090', u'job': u'prometheus', u'severity': u'critical', u'alertname': u'example2Alert1'}], [u'example2Alert1', {u'instance': u'localhost:9090', u'job': u'prometheus', u'severity': u'warn', u'alertname': u'example2Alert1'}]]
-    >>> test.check_alert_logic(firingalerts)
-    2
-    """
     OK = 0
     WARNING = 1
     CRITICAL = 2
