@@ -154,7 +154,7 @@ class PromRequest(object):
                 
             firingalerts = self.get_firing_alerts_with_name()
             
-            self.check_alert_logic(self, firingalerts)
+            self.check_alert_logic(firingalerts)
 
         except PromRequestError as e:
             if not throw_exception_if_unknown:
