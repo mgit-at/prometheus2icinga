@@ -1,16 +1,5 @@
 # Prometheus2Icinga
 
-   _______    ______   ______
-  /       \  /      \ /      |
-  $$$$$$$  |/$$$$$$  |$$$$$$
-  $$ |__$$ |$$____$$ |  $$ |
-  $$    $$/  /    $$/   $$ |
-  $$$$$$$/  /$$$$$$/    $$ |
-  $$ |      $$ |_____  _$$ |_
-  $$ |      $$       |/ $$   |
-  $$/       $$$$$$$$/ $$$$$$
-
-
 Usage: p2i.py [OPTIONS]
 
 Description:
@@ -51,3 +40,27 @@ Options:
                       itself via basic auth with the credentials in the
                       .netrc file. The netrc "machine" attribute must be
                       set to "prometheus"
+
+## How to install
+
+In order to get it to work you just have to clone this Repository
+
+```git clone git@github.com:mgit-at/prometheus2icinga.git```
+
+You can either use this script manually to retrieve the status of an alert or let Icinga call it\
+instead.
+
+### Basic auth support
+
+Prometheus2Icinga has basic auth support. It is highly recommended that you use this feature\
+instead of exposing your prometheus Instance to the whole internet when using this script\
+across multiple Servers. In order to use this feature you'll have to provide the credentials\
+for basic auth in a so called netrc file. To do this you can either create a file named `.netrc`\
+in your users home directory or you can specify a custom file path via the option:\
+```--netrc-path "/path/to/example_netrc_file.netrc"``` 
+
+Here is an example of a netrc file:\
+```machine prometheus login YOUR_USER password YOUR_PASSWORD```
+
+Please note that machine *has* to be set to *`prometheus`* for this script.
+
