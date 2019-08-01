@@ -50,6 +50,26 @@ In order to get it to work you just have to clone this Repository
 You can either use this script manually to retrieve the status of an alert or let Icinga call it\
 instead.
 
+### Integration into Prometheus
+
+The following is an example of a prometheus alert that works with this script:
+```
+groups:
+- name: example
+  rules:
+  - alert: HighRequestLatency
+    expr: job:request_latency_seconds:mean5m{job="myjob"} > 0.5
+    for: 10m
+    labels:
+      severity: critical
+    annotations:
+      summary: High request latency
+```
+
+Notice that `severity` is set to `critical`. 
+
+### Integration into Icinga
+
 ### Basic auth support
 
 Prometheus2Icinga has basic auth support. It is highly recommended that you use this feature\
