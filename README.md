@@ -77,12 +77,12 @@ An example p2i call requesting the status of this alert would look something lik
 
 ### Integration into Icinga2
 
-In order to integrate this script into Icinga you'll have to add p2i to the plugins folder of your\
-Icinga2, the location of this folder varys across operating systems so please refer to the Icinga\
+In order to integrate this script into Icinga2 you'll have to add p2i to the plugins folder of your\
+Icinga2, the location of this folder varys across operating systems so please refer to the Icinga2\
 Documentation for the exact location. The actual integration into Icinga2 varys widely from setup\
-to setup. If you're using Icinga2 in combination with Icinga Director you'll have to create a new\
+to setup. If you're using Icinga2 in combination with Icinga2 Director you'll have to create a new\
 command in the web-frontend. With other setups you might need to add the neccessary configuration\
-Objects on the Icinga Master/Satellite.
+Objects on the Icinga2 Master/Satellite.
 
 ### Basic auth support
 
