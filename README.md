@@ -48,7 +48,7 @@ In order to get it to work you just have to clone this Repository
 ```git clone git@github.com:mgit-at/prometheus2icinga.git```
 
 You can either use this script manually to retrieve the status of an alert or let Icinga call it\
-instead.
+instead. If you want to use this script with Icinga you have to move p2i into the Icinga plugins folder.
 
 ### Integration into Prometheus
 
@@ -66,15 +66,29 @@ groups:
       summary: High request latency
 ```
 
-Notice that `severity` is set to `critical`. 
+Notice that `severity` is set to `critical`.
 
-### Integration into Icinga
+The only thing you have to do to get your existing alerts to work with p2i is to\
+add a severity label to your alerts that is set to either `critical`/`crit` or `warning`/`warn`\
+depending on how important the alert is. An alert set to `critical` will result in a returncode\
+of 2 while an alert set to `warning` will result in a returncode of 1.\
+An example p2i call requesting the status of this alert would look something like this:\
+`python p2i.py --alertname 'HighRequestLatency' --baseurl 'http://localhost/prometheus/' --labels '{"instance":"localhost"}'`
+
+### Integration into Icinga2
+
+In order to integrate this script into Icinga you'll have to add p2i to the plugins folder of your\
+Icinga2, the location of this folder varys across operating systems so please refer to the Icinga\
+Documentation for the exact location. The actual integration into Icinga2 varys widely from setup\
+to setup. If you're using Icinga2 in combination with Icinga Director you'll have to create a new\
+command in the web-frontend. With other setups you might need to add the neccessary configuration\
+Objects on the Icinga Master/Satellite.
 
 ### Basic auth support
 
 Prometheus2Icinga has basic auth support. It is highly recommended that you use this feature\
 instead of exposing your prometheus Instance to the whole internet when using this script\
-across multiple Servers. In order to use this feature you'll have to provide the credentials\
+across multiple servers. In order to use this feature you'll have to provide the credentials\
 for basic auth in a so called netrc file. To do this you can either create a file named `.netrc`\
 in your users home directory or you can specify a custom file path via the option:\
 ```--netrc-path "/path/to/example_netrc_file.netrc"``` 
